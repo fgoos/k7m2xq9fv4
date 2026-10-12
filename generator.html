@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="color-scheme" content="light">
+<title>Tag-URL Generator</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html { background: #fff; }
+  body {
+    margin: 0 auto; padding: 20px 16px 60px; max-width: 44rem;
+    background: #fff; color: #111;
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  h1 { font-size: 1.4rem; margin: 0 0 4px; }
+  .lead { color: #555; font-size: .95rem; margin: 0 0 24px; }
+  fieldset { border: 1px solid #ddd; border-radius: 10px; padding: 14px 16px 6px; margin: 0 0 18px; }
+  legend { font-size: .78rem; text-transform: uppercase; letter-spacing: .07em; color: #555; padding: 0 6px; }
+  label { display: block; margin-bottom: 12px; }
+  label .t { display: block; font-size: .85rem; color: #333; margin-bottom: 4px; font-weight: 600; }
+  label .h { display: block; font-size: .78rem; color: #777; margin-top: 3px; font-weight: 400; }
+  input[type=text] {
+    width: 100%; padding: 9px 10px; font-size: 1rem; font-family: inherit;
+    border: 1px solid #bbb; border-radius: 7px; background: #fff; color: #111;
+  }
+  input:focus { outline: 2px solid #1a73e8; outline-offset: 1px; }
+  .k3 { display: grid; grid-template-columns: 1.2fr 1fr 1.3fr; gap: 8px; }
+  @media (max-width: 34rem) { .k3 { grid-template-columns: 1fr; } }
+  .out { position: sticky; bottom: 0; background: #fff; border-top: 2px solid #111; padding: 14px 0 10px; margin-top: 8px; }
+  #url {
+    width: 100%; min-height: 5.5rem; padding: 10px; font-size: .85rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    border: 1px solid #bbb; border-radius: 7px; overflow-wrap: anywhere; background: #f8f8f8; color: #111;
+  }
+  .bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+  button, .lnk {
+    padding: 10px 14px; font-size: .95rem; font-family: inherit; font-weight: 600;
+    border-radius: 8px; border: 2px solid #111; background: #111; color: #fff; cursor: pointer;
+    text-decoration: none; display: inline-block;
+  }
+  .lnk { background: #fff; color: #111; }
+  .count { font-size: .9rem; font-variant-numeric: tabular-nums; margin-left: auto; }
+  .count.ok { color: #1e7a34; } .count.warn { color: #9a6400; } .count.bad { color: #b3261e; font-weight: 700; }
+  .warnbox { background: #fff4f2; border-left: 4px solid #b3261e; padding: 10px 12px; font-size: .9rem; border-radius: 0 8px 8px 0; margin: 10px 0 0; }
+  .privacy { background: #f2f7f2; border-left: 4px solid #1e7a34; padding: 10px 12px; font-size: .9rem; border-radius: 0 8px 8px 0; margin: 0 0 22px; }
+</style>
+</head>
+<body>
+
+<h1>Tag-URL Generator</h1>
+<p class="lead">Füllt die Angaben in die URL für den NFC-Tag. Leere Felder werden weggelassen.</p>
+
+<div class="privacy"><strong>Nichts wird gesendet.</strong> Diese Seite rechnet nur im Browser;
+es gibt keinen Server-Aufruf, kein Speichern, kein Nachladen von außen. Du kannst die Datei auch
+offline per Doppelklick öffnen.</div>
+
+<fieldset>
+  <legend>Ziel-Adresse</legend>
+  <label><span class="t">Basis-URL deiner Anzeige-Seite</span>
+    <input type="text" id="base" value="https://BENUTZERNAME.github.io/REPONAME/">
+    <span class="h">Nach dem Einrichten von GitHub Pages hier eintragen. Mit Schrägstrich am Ende.</span>
+  </label>
+</fieldset>
+
+<fieldset>
+  <legend>Person</legend>
+  <label><span class="t">Vorname (oder Vorname + Initial)</span>
+    <input type="text" id="f_n" placeholder="Felix G.">
+    <span class="h">Reicht zur Ansprache. Vollständiger Name ist für die Erstversorgung nicht nötig.</span>
+  </label>
+  <label><span class="t">Stand der Angaben</span>
+    <input type="text" id="f_d" placeholder="10/2026">
+    <span class="h">Zeigt dem Helfer, wie aktuell die Daten sind.</span>
+  </label>
+</fieldset>
+
+<fieldset>
+  <legend>Notfallkontakte — werden antippbare Anruf-Buttons</legend>
+  <div id="contacts"></div>
+  <p class="h" style="color:#777;font-size:.78rem;margin:0 0 12px">
+    Nummern international: <strong>+49…</strong> (nicht 0151…). Der erste Kontakt steht oben.</p>
+</fieldset>
+
+<fieldset>
+  <legend>Medizinisch — in der Reihenfolge, in der es im Einsatz zählt</legend>
+  <div id="med"></div>
+</fieldset>
+
+<fieldset>
+  <legend>Bewusst nicht vorgesehen</legend>
+  <p style="font-size:.9rem;color:#555;margin:0 0 12px">
+    Anschrift, vollständiges Geburtsdatum, Krankenkasse und Versichertennummer ändern im Einsatz
+    keine Maßnahme — die Klinik bekommt sie in 30 Sekunden über den Notfallkontakt. Am Handgelenk
+    wären sie dagegen für jeden Finder lesbar und die Versichertennummer lässt sich nicht sperren.
+    Diese Angaben gehören in den Notfallpass deines eigenen iPhones.</p>
+</fieldset>
+
+<div class="out">
+  <div id="url" role="textbox" aria-readonly="true"></div>
+  <div class="bar">
+    <button type="button" id="copy">URL kopieren</button>
+    <a class="lnk" id="preview" href="#">Vorschau öffnen</a>
+    <span class="count" id="count"></span>
+  </div>
+  <div class="warnbox" id="warn" hidden></div>
+</div>
+
+<script>
+(function () {
+  var KAPAZITAET = 504; // NTAG215, nutzbarer NDEF-Speicher
+
+  var MED = [
+    ['bv', 'Blutverdünner / Antikoagulation', 'Marcumar / Apixaban / ASS — oder "nein"', true],
+    ['al', 'Allergien', 'Penicillin, Kontrastmittel, Latex — oder "keine"', true],
+    ['me', 'Dauermedikation', 'Wirkstoff + Dosis, Telegrammstil', false],
+    ['vk', 'Vorerkrankungen', 'Diabetes Typ 1, Epilepsie, Asthma, Dialyse…', false],
+    ['im', 'Implantate', 'Herzschrittmacher, ICD, Insulinpumpe, Port', false],
+    ['pv', 'Patientenverfügung / Vollmacht', 'vorhanden + wo sie liegt', false],
+    ['bg', 'Blutgruppe', 'optional — präklinisch kaum relevant', false],
+    ['x',  'Sonstiges', 'z. B. Sprache, Begleithund, Kontaktlinsen', false]
+  ];
+
+  var elC = document.getElementById('contacts');
+  var elM = document.getElementById('med');
+  var fields = [];
+
+  function mkInput(id, ph) {
+    var i = document.createElement('input');
+    i.type = 'text'; i.id = id; i.placeholder = ph || '';
+    i.addEventListener('input', render);
+    return i;
+  }
+
+  for (var n = 1; n <= 4; n++) {
+    var lab = document.createElement('label');
+    var t = document.createElement('span'); t.className = 't';
+    t.textContent = 'Kontakt ' + n + (n === 1 ? ' (Hauptkontakt)' : ' (optional)');
+    var grid = document.createElement('div'); grid.className = 'k3';
+    grid.appendChild(mkInput('k' + n + '_name', 'Name'));
+    grid.appendChild(mkInput('k' + n + '_rel', 'Beziehung'));
+    grid.appendChild(mkInput('k' + n + '_tel', '+4915112345678'));
+    lab.appendChild(t); lab.appendChild(grid); elC.appendChild(lab);
+  }
+
+  MED.forEach(function (m) {
+    var lab = document.createElement('label');
+    var t = document.createElement('span'); t.className = 't'; t.textContent = m[1];
+    var h = document.createElement('span'); h.className = 'h'; h.textContent = m[2];
+    lab.appendChild(t); lab.appendChild(mkInput('f_' + m[0], '')); lab.appendChild(h);
+    elM.appendChild(lab);
+    fields.push(m[0]);
+  });
+
+  document.getElementById('base').addEventListener('input', render);
+  document.getElementById('f_n').addEventListener('input', render);
+  document.getElementById('f_d').addEventListener('input', render);
+
+  function val(id) {
+    var e = document.getElementById(id);
+    return e ? e.value.trim() : '';
+  }
+
+  function build() {
+    var p = new URLSearchParams();
+    if (val('f_n')) p.set('n', val('f_n'));
+
+    var fehlendeNummer = false;
+    for (var i = 1; i <= 4; i++) {
+      var name = val('k' + i + '_name'), rel = val('k' + i + '_rel'), tel = val('k' + i + '_tel');
+      if (!name && !rel && !tel) continue;
+      if (!tel) fehlendeNummer = true;
+      p.set('k' + i, [name, rel, tel].join(';').replace(/;+$/, ''));
+    }
+
+    fields.forEach(function (k) { if (val('f_' + k)) p.set(k, val('f_' + k)); });
+    if (val('f_d')) p.set('d', val('f_d'));
+
+    var base = val('base') || '';
+    if (base && base.slice(-1) !== '/' && base.indexOf('#') < 0) base += '/';
+    var q = p.toString();
+    return { url: base + (q ? '#' + q : ''), hash: q, fehlendeNummer: fehlendeNummer };
+  }
+
+  function tagBytes(url) {
+    var rest = url.replace(/^https:\/\//, '').replace(/^http:\/\//, '');
+    var n = new TextEncoder().encode(rest).length + 1; // + Praefix-Code
+    return n + (n > 255 ? 12 : 8); // NDEF-/TLV-Overhead, konservativ
+  }
+
+  function render() {
+    var b = build();
+    var out = document.getElementById('url');
+    out.textContent = b.url || '—';
+
+    var bytes = b.hash ? tagBytes(b.url) : 0;
+    var c = document.getElementById('count');
+    c.textContent = bytes + ' / ' + KAPAZITAET + ' Byte auf dem Tag';
+    c.className = 'count ' + (bytes > KAPAZITAET ? 'bad' : bytes > KAPAZITAET - 60 ? 'warn' : 'ok');
+
+    var hinweise = [];
+    if (bytes > KAPAZITAET) hinweise.push('<strong>Passt nicht auf den NTAG215.</strong> Kürzen: Telegrammstil, Umlaute als ae/oe/ue schreiben (ein Umlaut kostet 6 Byte), unwichtige Felder leeren.');
+    else if (bytes > KAPAZITAET - 60) hinweise.push('Knapp unter der Grenze — Reserve für spätere Ergänzungen ist kaum noch da.');
+    if (b.fehlendeNummer) hinweise.push('Ein Kontakt hat keine Nummer und wird dann nicht als Anruf-Button angezeigt.');
+    if (/BENUTZERNAME|REPONAME/.test(val('base'))) hinweise.push('Basis-URL ist noch ein Platzhalter.');
+    if (/[äöüÄÖÜß]/.test(b.hash)) hinweise.push('Umlaute gefunden — jeder kostet 6 statt 1 Byte. Bei Platzmangel ae/oe/ue/ss schreiben.');
+
+    var w = document.getElementById('warn');
+    w.innerHTML = hinweise.join('<br>');
+    w.hidden = hinweise.length === 0;
+
+    document.getElementById('preview').setAttribute('href', 'index.html' + (b.hash ? '#' + b.hash : ''));
+  }
+
+  document.getElementById('copy').addEventListener('click', function () {
+    var txt = build().url, btn = this;
+    function done() { btn.textContent = 'kopiert ✓'; setTimeout(function () { btn.textContent = 'URL kopieren'; }, 1600); }
+    if (navigator.clipboard) navigator.clipboard.writeText(txt).then(done, fallback);
+    else fallback();
+    function fallback() {
+      var ta = document.createElement('textarea');
+      ta.value = txt; document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); done(); } catch (e) { alert('Bitte manuell markieren und kopieren.'); }
+      document.body.removeChild(ta);
+    }
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>

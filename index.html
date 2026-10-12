@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="color-scheme" content="light">
+<title>Notfall-Information</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html { background: #fff; }
+  body {
+    margin: 0 auto; padding: 16px; max-width: 34rem;
+    background: #fff; color: #111;
+    font: 17px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-text-size-adjust: 100%;
+  }
+  header {
+    background: #b3261e; color: #fff;
+    border-radius: 12px; padding: 14px 16px; margin-bottom: 14px;
+  }
+  header h1 { margin: 0; font-size: 1.7rem; letter-spacing: .06em; }
+  header p { margin: 2px 0 0; font-size: .9rem; opacity: .92; }
+  .btn {
+    display: block; text-align: center; text-decoration: none;
+    padding: 15px 14px; margin: 0 0 10px; border-radius: 10px;
+    border: 2px solid #b3261e; font-weight: 700; font-size: 1.1rem;
+  }
+  .btn-112 { background: #b3261e; color: #fff; }
+  .btn-call { background: #fff; color: #111; }
+  .btn-call .who { display: block; font-weight: 600; font-size: .82rem; color: #555; margin-bottom: 3px; }
+  .btn-call .num { display: block; font-variant-numeric: tabular-nums; }
+  h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; color: #555; margin: 22px 0 8px; }
+  .row { border-top: 1px solid #e0e0e0; padding: 10px 0; }
+  .row .k { font-size: .78rem; text-transform: uppercase; letter-spacing: .05em; color: #555; }
+  .row .v { font-size: 1.05rem; margin-top: 2px; overflow-wrap: anywhere; }
+  .row.alert { border-top: none; background: #fff4f2; border-left: 4px solid #b3261e; padding: 10px 12px; border-radius: 0 8px 8px 0; margin: 10px 0; }
+  .row.alert .k { color: #b3261e; font-weight: 700; }
+  .note { font-size: .85rem; color: #555; margin-top: 22px; border-top: 1px solid #e0e0e0; padding-top: 12px; }
+  .empty { background: #f6f6f6; border-radius: 10px; padding: 14px; font-size: .95rem; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>NOTFALL</h1>
+  <p>Emergency information &middot; bitte zuerst 112 rufen</p>
+</header>
+
+<a class="btn btn-112" href="tel:112">112 anrufen</a>
+
+<main id="app"></main>
+
+<noscript>
+  <div class="empty">Für die Anzeige der Notfalldaten muss JavaScript aktiv sein.
+  Die Daten stehen unverändert in der Adresszeile dieser Seite hinter dem Zeichen <strong>#</strong>.</div>
+</noscript>
+
+<p class="note">Diese Seite speichert nichts. Alle Angaben stehen im Adress-Zusatz
+hinter <strong>#</strong> und werden nie an einen Server übertragen.</p>
+
+<script>
+(function () {
+  var app = document.getElementById('app');
+
+  // --- Schalter -------------------------------------------------------------
+  // true  = das #... wird nach dem Anzeigen aus der Adresszeile entfernt
+  //         (weniger Spuren im Browser-Verlauf des Helfers)
+  // false = bleibt stehen (zuverlaessiger: ein Neuladen der Seite zeigt die
+  //         Daten weiter an). Empfehlung fuer eine Notfallseite: false.
+  var HASH_AUS_ADRESSZEILE = false;
+  // -------------------------------------------------------------------------
+
+
+  var FIELDS = [
+    ['bv', 'Blutverduenner / Antikoagulation', true],
+    ['al', 'Allergien', true],
+    ['me', 'Dauermedikation', false],
+    ['vk', 'Vorerkrankungen', false],
+    ['im', 'Implantate', false],
+    ['pv', 'Patientenverfuegung / Vollmacht', false],
+    ['bg', 'Blutgruppe', false],
+    ['x',  'Sonstiges', false]
+  ];
+
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+
+  // Nur Ziffern, + und Trenner zulassen - verhindert, dass ueber die URL
+  // ein beliebiges Schema (z. B. javascript:) in ein href gelangt.
+  function telHref(raw) {
+    var clean = String(raw).replace(/[^0-9+]/g, '');
+    if (clean.indexOf('+') > 0) clean = clean.replace(/\+/g, '');
+    return /^\+?[0-9]{3,}$/.test(clean) ? 'tel:' + clean : null;
+  }
+
+  function row(label, value, alert) {
+    var r = el('div', alert ? 'row alert' : 'row');
+    r.appendChild(el('div', 'k', label));
+    r.appendChild(el('div', 'v', value));
+    return r;
+  }
+
+  var hash = location.hash.replace(/^#/, '');
+  if (!hash) {
+    app.appendChild(el('h2', null, 'Keine Daten'));
+    var e = el('div', 'empty');
+    e.textContent = 'Diese Seite zeigt Notfalldaten nur an, wenn sie über den '
+      + 'NFC-Tag bzw. den vollständigen Link geöffnet wird. Der Link wurde '
+      + 'offenbar gekürzt — bitte den Tag erneut scannen.';
+    app.appendChild(e);
+    return;
+  }
+
+  var p = new URLSearchParams(hash);
+
+  if (p.get('n')) {
+    app.appendChild(el('h2', null, 'Person'));
+    app.appendChild(row('Name', p.get('n'), false));
+  }
+
+  // Kontakte: k1..k4, Format  Name;Beziehung;Nummer
+  var contacts = [];
+  for (var i = 1; i <= 4; i++) {
+    var v = p.get('k' + i);
+    if (v) contacts.push(v);
+  }
+  if (contacts.length) {
+    app.appendChild(el('h2', null, contacts.length > 1 ? 'Notfallkontakte — antippen zum Anrufen' : 'Notfallkontakt — antippen zum Anrufen'));
+    contacts.forEach(function (c) {
+      var parts = c.split(';');
+      var name = (parts[0] || '').trim();
+      var rel  = (parts[1] || '').trim();
+      var num  = (parts[2] || '').trim();
+      var href = telHref(num);
+      var who = [name, rel].filter(Boolean).join(' — ');
+      if (href) {
+        var a = el('a', 'btn btn-call');
+        a.setAttribute('href', href);
+        a.appendChild(el('span', 'who', who || 'Notfallkontakt'));
+        a.appendChild(el('span', 'num', num));
+        app.appendChild(a);
+      } else {
+        app.appendChild(row(who || 'Notfallkontakt', num || '—', false));
+      }
+    });
+  }
+
+  var med = FIELDS.filter(function (f) { return p.get(f[0]); });
+  if (med.length) {
+    app.appendChild(el('h2', null, 'Medizinische Angaben'));
+    med.forEach(function (f) {
+      var val = p.get(f[0]).trim();
+      var harmless = /^(nein|keine|keiner|keines|none|-)$/i.test(val);
+      app.appendChild(row(f[1], val, f[2] && !harmless));
+    });
+  }
+
+  if (p.get('d')) {
+    app.appendChild(row('Stand der Angaben', p.get('d'), false));
+  }
+
+  if (HASH_AUS_ADRESSZEILE && window.history && history.replaceState) {
+    try { history.replaceState(null, '', location.pathname); } catch (e) {}
+  }
+})();
+</script>
+</body>
+</html>
