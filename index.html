@@ -52,25 +52,23 @@
 <main id="app"></main>
 
 <noscript>
-  <div class="empty">Für die Anzeige der Notfalldaten muss JavaScript aktiv sein.
-  Die Daten stehen unverändert in der Adresszeile dieser Seite hinter dem Zeichen <strong>#</strong>.</div>
+  <div class="empty">Für die Anzeige muss JavaScript aktiv sein.
+  <strong>Notfallkontakte</strong> stehen im Klartext in der Adresszeile dieser Seite
+  (hinter <strong>#</strong>, als <code>k1=</code>, <code>k2=</code>).
+  Die medizinischen Angaben sind verschlüsselt und ohne JavaScript nicht lesbar.</div>
 </noscript>
 
-<p class="note">Diese Seite speichert nichts. Alle Angaben stehen im Adress-Zusatz
-hinter <strong>#</strong> und werden nie an einen Server übertragen.</p>
+<p class="note">Diese Seite speichert nichts und überträgt nichts. Alle Angaben stehen im
+Adress-Zusatz hinter <strong>#</strong>; dieser Teil erreicht grundsätzlich keinen Server.
+Medizinische Angaben sind zusätzlich verschlüsselt und werden erst hier im Gerät lesbar gemacht.</p>
 
 <script>
 (function () {
   var app = document.getElementById('app');
 
-  // --- Schalter -------------------------------------------------------------
-  // true  = das #... wird nach dem Anzeigen aus der Adresszeile entfernt
-  //         (weniger Spuren im Browser-Verlauf des Helfers)
-  // false = bleibt stehen (zuverlaessiger: ein Neuladen der Seite zeigt die
-  //         Daten weiter an). Empfehlung fuer eine Notfallseite: false.
+  // true = #... nach dem Anzeigen aus der Adresszeile entfernen.
+  // false = stehen lassen (Neuladen zeigt die Daten weiter). Empfehlung: false.
   var HASH_AUS_ADRESSZEILE = false;
-  // -------------------------------------------------------------------------
-
 
   var FIELDS = [
     ['bv', 'Blutverduenner / Antikoagulation', true],
@@ -90,8 +88,8 @@ hinter <strong>#</strong> und werden nie an einen Server übertragen.</p>
     return n;
   }
 
-  // Nur Ziffern, + und Trenner zulassen - verhindert, dass ueber die URL
-  // ein beliebiges Schema (z. B. javascript:) in ein href gelangt.
+  // Nur Ziffern und + zulassen - verhindert, dass ueber die URL ein
+  // beliebiges Schema (z. B. javascript:) in ein href gelangt.
   function telHref(raw) {
     var clean = String(raw).replace(/[^0-9+]/g, '');
     if (clean.indexOf('+') > 0) clean = clean.replace(/\+/g, '');
@@ -105,67 +103,128 @@ hinter <strong>#</strong> und werden nie an einen Server übertragen.</p>
     return r;
   }
 
+  function unb64u(str) {
+    str = String(str).replace(/-/g, '+').replace(/_/g, '/');
+    while (str.length % 4) str += '=';
+    var bin = atob(str), out = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+
+  function entschluesseln(eStr, kStr) {
+    var blob = unb64u(eStr), iv = blob.slice(0, 12), ct = blob.slice(12);
+    return crypto.subtle.importKey('raw', unb64u(kStr), { name: 'AES-GCM' }, false, ['decrypt'])
+      .then(function (key) { return crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv }, key, ct); })
+      .then(function (pt) { return new TextDecoder().decode(pt); });
+  }
+
+  // Zeichnet den gesamten Inhalt in fester Reihenfolge.
+  function renderAll(host, p) {
+    var etwas = false;
+
+    if (p.get('n')) {
+      host.appendChild(el('h2', null, 'Person'));
+      host.appendChild(row('Name', p.get('n'), false));
+      etwas = true;
+    }
+
+    var contacts = [];
+    for (var i = 1; i <= 4; i++) { if (p.get('k' + i)) contacts.push(p.get('k' + i)); }
+    if (contacts.length) {
+      host.appendChild(el('h2', null, contacts.length > 1
+        ? 'Notfallkontakte — antippen zum Anrufen'
+        : 'Notfallkontakt — antippen zum Anrufen'));
+      contacts.forEach(function (c) {
+        var parts = c.split(';');
+        var name = (parts[0] || '').trim(), rel = (parts[1] || '').trim(), num = (parts[2] || '').trim();
+        var href = telHref(num), who = [name, rel].filter(Boolean).join(' — ');
+        if (href) {
+          var a = el('a', 'btn btn-call');
+          a.setAttribute('href', href);
+          a.appendChild(el('span', 'who', who || 'Notfallkontakt'));
+          a.appendChild(el('span', 'num', num));
+          host.appendChild(a);
+        } else {
+          host.appendChild(row(who || 'Notfallkontakt', num || '—', false));
+        }
+      });
+      etwas = true;
+    }
+
+    var med = FIELDS.filter(function (f) { return p.get(f[0]); });
+    if (med.length) {
+      host.appendChild(el('h2', null, 'Medizinische Angaben'));
+      med.forEach(function (f) {
+        var val = p.get(f[0]).trim();
+        var harmless = /^(nein|keine|keiner|keines|none|-)$/i.test(val);
+        host.appendChild(row(f[1], val, f[2] && !harmless));
+      });
+      etwas = true;
+    }
+
+    if (p.get('d')) { host.appendChild(row('Stand der Angaben', p.get('d'), false)); }
+    return etwas;
+  }
+
+  function fehlerzeile(host, grund) {
+    var b = el('div', 'row alert');
+    b.appendChild(el('div', 'k', 'Daten nicht lesbar'));
+    b.appendChild(el('div', 'v', grund + '. Bitte 112 rufen — der Notruf funktioniert immer.'));
+    host.appendChild(b);
+  }
+
   var hash = location.hash.replace(/^#/, '');
   if (!hash) {
     app.appendChild(el('h2', null, 'Keine Daten'));
-    var e = el('div', 'empty');
-    e.textContent = 'Diese Seite zeigt Notfalldaten nur an, wenn sie über den '
+    var e0 = el('div', 'empty');
+    e0.textContent = 'Diese Seite zeigt Notfalldaten nur an, wenn sie über den '
       + 'NFC-Tag bzw. den vollständigen Link geöffnet wird. Der Link wurde '
       + 'offenbar gekürzt — bitte den Tag erneut scannen.';
-    app.appendChild(e);
+    app.appendChild(e0);
     return;
   }
 
   var p = new URLSearchParams(hash);
 
-  if (p.get('n')) {
-    app.appendChild(el('h2', null, 'Person'));
-    app.appendChild(row('Name', p.get('n'), false));
+  function erledigt() {
+    if (HASH_AUS_ADRESSZEILE && window.history && history.replaceState) {
+      try { history.replaceState(null, '', location.pathname); } catch (e) {}
+    }
   }
 
-  // Kontakte: k1..k4, Format  Name;Beziehung;Nummer
-  var contacts = [];
-  for (var i = 1; i <= 4; i++) {
-    var v = p.get('k' + i);
-    if (v) contacts.push(v);
-  }
-  if (contacts.length) {
-    app.appendChild(el('h2', null, contacts.length > 1 ? 'Notfallkontakte — antippen zum Anrufen' : 'Notfallkontakt — antippen zum Anrufen'));
-    contacts.forEach(function (c) {
-      var parts = c.split(';');
-      var name = (parts[0] || '').trim();
-      var rel  = (parts[1] || '').trim();
-      var num  = (parts[2] || '').trim();
-      var href = telHref(num);
-      var who = [name, rel].filter(Boolean).join(' — ');
-      if (href) {
-        var a = el('a', 'btn btn-call');
-        a.setAttribute('href', href);
-        a.appendChild(el('span', 'who', who || 'Notfallkontakt'));
-        a.appendChild(el('span', 'num', num));
-        app.appendChild(a);
-      } else {
-        app.appendChild(row(who || 'Notfallkontakt', num || '—', false));
-      }
-    });
-  }
+  if (p.get('e') && p.get('k')) {
+    var warte = el('div', 'empty', 'Notfalldaten werden entschlüsselt …');
+    app.appendChild(warte);
 
-  var med = FIELDS.filter(function (f) { return p.get(f[0]); });
-  if (med.length) {
-    app.appendChild(el('h2', null, 'Medizinische Angaben'));
-    med.forEach(function (f) {
-      var val = p.get(f[0]).trim();
-      var harmless = /^(nein|keine|keiner|keines|none|-)$/i.test(val);
-      app.appendChild(row(f[1], val, f[2] && !harmless));
-    });
-  }
+    var scheitern = function (grund) {
+      app.textContent = '';
+      // alles anzeigen, was unverschluesselt vorliegt - besser als nichts
+      renderAll(app, p);
+      fehlerzeile(app, grund);
+      erledigt();
+    };
 
-  if (p.get('d')) {
-    app.appendChild(row('Stand der Angaben', p.get('d'), false));
-  }
-
-  if (HASH_AUS_ADRESSZEILE && window.history && history.replaceState) {
-    try { history.replaceState(null, '', location.pathname); } catch (e) {}
+    if (!(window.crypto && crypto.subtle)) {
+      scheitern('Verschlüsselung wird von diesem Browser nicht unterstützt');
+    } else if (p.get('v') && p.get('v') !== '1') {
+      scheitern('Unbekannte Formatversion ' + p.get('v'));
+    } else {
+      entschluesseln(p.get('e'), p.get('k')).then(function (klartext) {
+        // entschluesselte Felder mit den unverschluesselten zusammenfuehren
+        var alle = new URLSearchParams(klartext);
+        p.forEach(function (v, k) {
+          if (k !== 'e' && k !== 'k' && k !== 'v' && !alle.get(k)) alle.set(k, v);
+        });
+        app.textContent = '';
+        if (!renderAll(app, alle)) fehlerzeile(app, 'Der Datensatz ist leer');
+        erledigt();
+      }).catch(function () {
+        scheitern('Schlüssel oder Daten beschädigt');
+      });
+    }
+  } else {
+    renderAll(app, p);
+    erledigt();
   }
 })();
 </script>

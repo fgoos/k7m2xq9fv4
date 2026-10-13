@@ -57,10 +57,23 @@ es gibt keinen Server-Aufruf, kein Speichern, kein Nachladen von außen. Du kann
 offline per Doppelklick öffnen.</div>
 
 <fieldset>
+  <legend>Bestehende URL weiterbearbeiten</legend>
+  <label><span class="t">Fertige Tag-URL hier einfügen und einlesen</span>
+    <input type="text" id="load" placeholder="https://…/#n=…">
+    <span class="h">Füllt alle Felder unten wieder aus — praktisch, wenn du nur eine
+    Angabe ändern oder die Basis-Adresse nachtragen willst. Für eine neue URL einfach leer lassen.</span>
+  </label>
+  <div class="bar" style="margin:0 0 14px">
+    <button type="button" id="loadbtn">Felder aus URL füllen</button>
+    <span class="count" id="loadmsg"></span>
+  </div>
+</fieldset>
+
+<fieldset>
   <legend>Ziel-Adresse</legend>
   <label><span class="t">Basis-URL deiner Anzeige-Seite</span>
-    <input type="text" id="base" value="https://BENUTZERNAME.github.io/REPONAME/">
-    <span class="h">Nach dem Einrichten von GitHub Pages hier eintragen. Mit Schrägstrich am Ende.</span>
+    <input type="text" id="base" value="https://fgoos.github.io/k7m2xq9fv4/">
+    <span class="h"><strong>Nur die Adresse der Seite</strong> — alles vor dem <code>#</code>, mit Schrägstrich am Ende. Zu finden unter Repo → Settings → Pages. Hier gehört <strong>nicht</strong> die lange URL mit <code>#</code> hinein.</span>
   </label>
 </fieldset>
 
@@ -98,8 +111,21 @@ offline per Doppelklick öffnen.</div>
 </fieldset>
 
 <div class="out">
+  <label style="margin:0 0 10px">
+    <span class="t">Verschlüsselung (AES-128-GCM)</span>
+    <select id="krypto" style="width:100%;padding:9px 10px;font-size:1rem;font-family:inherit;border:1px solid #bbb;border-radius:7px;background:#fff;color:#111">
+      <option value="aus">aus — alles im Klartext in der URL</option>
+      <option value="med">nur Gesundheitsdaten — Nummern bleiben offline lesbar</option>
+      <option value="alles" selected>alles — nichts steht im Klartext in der URL</option>
+    </select>
+    <span class="h"><strong>alles:</strong> maximaler Schutz in fremden Browser-Verläufen,
+    aber ohne Netz und ohne JavaScript ist nichts lesbar — die gravierte Nummer am Band ist
+    dann die einzige Offline-Ebene. <strong>nur Gesundheitsdaten:</strong> Rufnummern bleiben
+    mit einer NFC-Reader-App auch offline lesbar.</span>
+  </label>
   <div id="url" role="textbox" aria-readonly="true"></div>
   <div class="bar">
+    <button type="button" id="krypto_go" hidden>Verschlüsselte URL erzeugen</button>
     <button type="button" id="copy">URL kopieren</button>
     <a class="lnk" id="preview" href="#">Vorschau öffnen</a>
     <span class="count" id="count"></span>
@@ -180,7 +206,7 @@ offline per Doppelklick öffnen.</div>
     var base = val('base') || '';
     if (base && base.slice(-1) !== '/' && base.indexOf('#') < 0) base += '/';
     var q = p.toString();
-    return { url: base + (q ? '#' + q : ''), hash: q, fehlendeNummer: fehlendeNummer };
+    return { url: base + (q ? '#' + q : ''), hash: q, base: base, fehlendeNummer: fehlendeNummer };
   }
 
   function tagBytes(url) {
@@ -189,9 +215,104 @@ offline per Doppelklick öffnen.</div>
     return n + (n > 255 ? 12 : 8); // NDEF-/TLV-Overhead, konservativ
   }
 
+  // --- base64url + AES-GCM ---------------------------------------------------
+  function b64u(buf) {
+    var b = new Uint8Array(buf), s = '';
+    for (var i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
+    return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+  function unb64u(str) {
+    str = String(str).replace(/-/g, '+').replace(/_/g, '/');
+    while (str.length % 4) str += '=';
+    var bin = atob(str), out = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+  function kryptoDa() { return !!(window.crypto && window.crypto.subtle); }
+
+  function verschluesseln(klartext) {
+    var iv = crypto.getRandomValues(new Uint8Array(12)), schluessel;
+    return crypto.subtle.generateKey({ name: 'AES-GCM', length: 128 }, true, ['encrypt', 'decrypt'])
+      .then(function (key) {
+        schluessel = key;
+        return crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv }, key, new TextEncoder().encode(klartext));
+      })
+      .then(function (ct) {
+        var c = new Uint8Array(ct), blob = new Uint8Array(12 + c.length);
+        blob.set(iv, 0); blob.set(c, 12);
+        return crypto.subtle.exportKey('raw', schluessel).then(function (raw) {
+          return { e: b64u(blob), k: b64u(raw) };
+        });
+      });
+  }
+
+  function entschluesseln(eStr, kStr) {
+    var blob = unb64u(eStr), iv = blob.slice(0, 12), ct = blob.slice(12);
+    return crypto.subtle.importKey('raw', unb64u(kStr), { name: 'AES-GCM' }, false, ['decrypt'])
+      .then(function (key) { return crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv }, key, ct); })
+      .then(function (pt) { return new TextDecoder().decode(pt); });
+  }
+
+  var MED_KEYS = ['bv', 'al', 'me', 'vk', 'im', 'pv', 'bg', 'x'];
+  var letzteURL = '';
+
+  document.getElementById('krypto').addEventListener('change', render);
+
+  document.getElementById('krypto_go').addEventListener('click', function () {
+    var b = build();
+    var modus = document.getElementById('krypto').value;
+    var med = new URLSearchParams(), rest = new URLSearchParams();
+    new URLSearchParams(b.hash).forEach(function (v, k) {
+      var geheim = (modus === 'alles') || (MED_KEYS.indexOf(k) >= 0);
+      (geheim ? med : rest).set(k, v);
+    });
+    var btn = this;
+    btn.disabled = true; btn.textContent = 'verschlüssele …';
+    verschluesseln(med.toString()).then(function (r) {
+      rest.set('v', '1'); rest.set('e', r.e); rest.set('k', r.k);
+      letzteURL = b.base + '#' + rest.toString();
+      zeige(letzteURL, true);
+      btn.disabled = false; btn.textContent = 'Neu verschlüsseln';
+    }).catch(function (err) {
+      btn.disabled = false; btn.textContent = 'Verschlüsselte URL erzeugen';
+      alert('Verschlüsselung fehlgeschlagen: ' + err);
+    });
+  });
+
+  function zeige(url, fertig) {
+    document.getElementById('url').textContent = url || '—';
+    var bytes = url ? tagBytes(url) : 0;
+    var c = document.getElementById('count');
+    c.textContent = bytes + ' / ' + KAPAZITAET + ' Byte auf dem Tag' + (fertig ? ' ✓' : '');
+    c.className = 'count ' + (bytes > KAPAZITAET ? 'bad' : bytes > KAPAZITAET - 60 ? 'warn' : 'ok');
+  }
+
   function render() {
     var b = build();
     var out = document.getElementById('url');
+    var modus = document.getElementById('krypto').value;
+    var krypto = modus !== 'aus';
+    var go = document.getElementById('krypto_go');
+    go.hidden = !krypto;
+    go.textContent = 'Verschlüsselte URL erzeugen';
+    go.disabled = false;
+
+    if (krypto) {
+      letzteURL = '';
+      if (!kryptoDa()) {
+        out.textContent = 'Verschlüsselung in diesem Browser nicht verfügbar. '
+          + 'Öffne den Generator stattdessen über https://fgoos.github.io/k7m2xq9fv4/generator.html';
+        go.hidden = true;
+      } else {
+        out.textContent = '→ Daten eingeben, dann „Verschlüsselte URL erzeugen" drücken. '
+          + 'Jede Änderung oben macht die erzeugte URL ungültig.';
+      }
+      document.getElementById('count').textContent = '';
+      document.getElementById('warn').hidden = true;
+      return;
+    }
+
+    letzteURL = b.url;
     out.textContent = b.url || '—';
 
     var bytes = b.hash ? tagBytes(b.url) : 0;
@@ -211,10 +332,93 @@ offline per Doppelklick öffnen.</div>
     w.hidden = hinweise.length === 0;
 
     document.getElementById('preview').setAttribute('href', 'index.html' + (b.hash ? '#' + b.hash : ''));
+    letzteURL = b.url;
   }
 
+  document.getElementById('loadbtn').addEventListener('click', function () {
+    var raw = val('load');
+    var msg = document.getElementById('loadmsg');
+    if (!raw) { msg.textContent = 'Kein Text zum Einlesen.'; msg.className = 'count warn'; return; }
+
+    var i = raw.indexOf('#');
+    var base = i >= 0 ? raw.slice(0, i) : raw;
+    var hash = i >= 0 ? raw.slice(i + 1) : '';
+
+    // alle Felder leeren, damit sich nichts vermischt
+    ['f_n', 'f_d'].forEach(function (id) { document.getElementById(id).value = ''; });
+    fields.forEach(function (k) { document.getElementById('f_' + k).value = ''; });
+    for (var n = 1; n <= 4; n++) {
+      ['_name', '_rel', '_tel'].forEach(function (suf) {
+        document.getElementById('k' + n + suf).value = '';
+      });
+    }
+
+    // Platzhalter-Basis aus einer alten URL NICHT uebernehmen
+    if (base && !/BENUTZERNAME|REPONAME/.test(base)) {
+      document.getElementById('base').value = base.slice(-1) === '/' ? base : base + '/';
+    }
+
+    var p = new URLSearchParams(hash);
+    var gezaehlt = 0;
+    if (p.get('n')) { document.getElementById('f_n').value = p.get('n'); gezaehlt++; }
+    if (p.get('d')) { document.getElementById('f_d').value = p.get('d'); gezaehlt++; }
+    fields.forEach(function (k) {
+      if (p.get(k)) { document.getElementById('f_' + k).value = p.get(k); gezaehlt++; }
+    });
+    for (var m = 1; m <= 4; m++) {
+      var v = p.get('k' + m);
+      if (!v) continue;
+      var parts = v.split(';');
+      document.getElementById('k' + m + '_name').value = (parts[0] || '').trim();
+      document.getElementById('k' + m + '_rel').value  = (parts[1] || '').trim();
+      document.getElementById('k' + m + '_tel').value  = (parts[2] || '').trim();
+      gezaehlt++;
+    }
+
+    // verschluesselter Medizinteil -> entschluesseln und Felder fuellen
+    if (p.get('e') && p.get('k')) {
+      document.getElementById('krypto').value = (p.get('k1') || p.get('n')) ? 'med' : 'alles';
+      if (!kryptoDa()) {
+        msg.textContent = 'Verschlüsselt — dieser Browser kann nicht entschlüsseln';
+        msg.className = 'count bad';
+        render();
+        return;
+      }
+      msg.textContent = 'entschlüssele …'; msg.className = 'count';
+      entschluesseln(p.get('e'), p.get('k')).then(function (klartext) {
+        var m = new URLSearchParams(klartext), n2 = 0;
+        MED_KEYS.forEach(function (k) {
+          if (m.get(k)) { document.getElementById('f_' + k).value = m.get(k); n2++; }
+        });
+        if (m.get('n')) { document.getElementById('f_n').value = m.get('n'); n2++; }
+        if (m.get('d')) { document.getElementById('f_d').value = m.get('d'); n2++; }
+        for (var q = 1; q <= 4; q++) {
+          var kv = m.get('k' + q);
+          if (!kv) continue;
+          var pr = kv.split(';');
+          document.getElementById('k' + q + '_name').value = (pr[0] || '').trim();
+          document.getElementById('k' + q + '_rel').value  = (pr[1] || '').trim();
+          document.getElementById('k' + q + '_tel').value  = (pr[2] || '').trim();
+          n2++;
+        }
+        render();
+        msg.textContent = (gezaehlt + n2) + ' Angaben eingelesen (entschlüsselt)';
+        msg.className = 'count ok';
+      }).catch(function () {
+        render();
+        msg.textContent = 'Medizinteil nicht entschlüsselbar — Schlüssel fehlt oder beschädigt';
+        msg.className = 'count bad';
+      });
+      return;
+    }
+
+    render();
+    msg.textContent = gezaehlt ? gezaehlt + ' Angaben eingelesen' : 'Keine Angaben gefunden';
+    msg.className = 'count ' + (gezaehlt ? 'ok' : 'warn');
+  });
+
   document.getElementById('copy').addEventListener('click', function () {
-    var txt = build().url, btn = this;
+    var txt = letzteURL || build().url, btn = this;
     function done() { btn.textContent = 'kopiert ✓'; setTimeout(function () { btn.textContent = 'URL kopieren'; }, 1600); }
     if (navigator.clipboard) navigator.clipboard.writeText(txt).then(done, fallback);
     else fallback();
