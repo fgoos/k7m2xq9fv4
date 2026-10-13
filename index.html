@@ -71,7 +71,10 @@ Medizinische Angaben sind zusätzlich verschlüsselt und werden erst hier im Ger
   //         Ein Neuladen funktioniert weiter, solange der Tab offen bleibt.
   // false = #... bleibt stehen (altes Verhalten).
   // Sicherung: Entfernt wird nur, wenn das Speichern nachweislich geklappt hat.
-  var HASH_AUS_ADRESSZEILE = true;
+  // 13.10.2026 am Geraet gemessen: Safari behaelt die urspruenglich aufgerufene
+  // URL im Verlauf, auch wenn die Adresszeile gekuerzt wurde. Der Nutzen entfaellt
+  // damit, der Preis (neuer Tab = keine Daten) bliebe. Deshalb aus.
+  var HASH_AUS_ADRESSZEILE = false;
   var SPEICHER_SCHLUESSEL = 'sos';
 
   var FIELDS = [
