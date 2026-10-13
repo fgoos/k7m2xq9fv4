@@ -66,9 +66,13 @@ Medizinische Angaben sind zusätzlich verschlüsselt und werden erst hier im Ger
 (function () {
   var app = document.getElementById('app');
 
-  // true = #... nach dem Anzeigen aus der Adresszeile entfernen.
-  // false = stehen lassen (Neuladen zeigt die Daten weiter). Empfehlung: false.
-  var HASH_AUS_ADRESSZEILE = false;
+  // true  = Daten in den Tab-Speicher legen und das #... aus der Adresszeile
+  //         entfernen. Dann landet im Browser-Verlauf nur die nackte Adresse.
+  //         Ein Neuladen funktioniert weiter, solange der Tab offen bleibt.
+  // false = #... bleibt stehen (altes Verhalten).
+  // Sicherung: Entfernt wird nur, wenn das Speichern nachweislich geklappt hat.
+  var HASH_AUS_ADRESSZEILE = true;
+  var SPEICHER_SCHLUESSEL = 'sos';
 
   var FIELDS = [
     ['bv', 'Blutverduenner / Antikoagulation', true],
@@ -174,6 +178,16 @@ Medizinische Angaben sind zusätzlich verschlüsselt und werden erst hier im Ger
   }
 
   var hash = location.hash.replace(/^#/, '');
+  var ausSpeicher = false;
+
+  // Nach dem Entfernen des #... holt ein Neuladen die Daten hier wieder her.
+  if (!hash) {
+    try {
+      var g = sessionStorage.getItem(SPEICHER_SCHLUESSEL);
+      if (g) { hash = g; ausSpeicher = true; }
+    } catch (e) { /* privater Modus o. ae. - dann bleibt es bei "keine Daten" */ }
+  }
+
   if (!hash) {
     app.appendChild(el('h2', null, 'Keine Daten'));
     var e0 = el('div', 'empty');
@@ -187,8 +201,17 @@ Medizinische Angaben sind zusätzlich verschlüsselt und werden erst hier im Ger
   var p = new URLSearchParams(hash);
 
   function erledigt() {
-    if (HASH_AUS_ADRESSZEILE && window.history && history.replaceState) {
-      try { history.replaceState(null, '', location.pathname); } catch (e) {}
+    if (!HASH_AUS_ADRESSZEILE || ausSpeicher) return;
+    // Erst sicher ablegen, erst dann die Adresszeile kuerzen. Schlaegt das
+    // Speichern fehl, bleibt das #... stehen - lieber eine Spur im Verlauf
+    // als eine leere Seite nach dem Neuladen.
+    var gesichert = false;
+    try {
+      sessionStorage.setItem(SPEICHER_SCHLUESSEL, hash);
+      gesichert = sessionStorage.getItem(SPEICHER_SCHLUESSEL) === hash;
+    } catch (e) { gesichert = false; }
+    if (gesichert && window.history && history.replaceState) {
+      try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
     }
   }
 
